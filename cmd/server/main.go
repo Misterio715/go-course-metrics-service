@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/Misterio715/go-course-metrics-service/internal/handler"
@@ -9,6 +10,13 @@ import (
 )
 
 func main() {
+	err := http.ListenAndServe(":8080", handler.LogRequests(log.Default(), newServerHandler()))
+	if err != nil {
+		return
+	}
+}
+
+func newServerHandler() http.Handler {
 	storage := repository.NewMemStorage()
 	metricsService := service.NewMetricsService(storage)
 	metricsHandler := handler.NewMetricsHandler(metricsService)
@@ -16,8 +24,5 @@ func main() {
 	mux := http.NewServeMux()
 	metricsHandler.RegisterRoutes(mux)
 
-	err := http.ListenAndServe(":8080", mux)
-	if err != nil {
-		return
-	}
+	return mux
 }
