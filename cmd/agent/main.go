@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"math/rand"
 	"runtime"
@@ -10,6 +11,13 @@ import (
 )
 
 func main() {
+	address := flag.String("a", "localhost:8080", "HTTP server address")
+	reportInterval := flag.Int("r", 10, "report interval in seconds")
+	pollInterval := flag.Int("p", 2, "poll interval in seconds")
+	flag.Parse()
+
+	baseUrl = "http://" + *address + "/update/"
+
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 
@@ -48,11 +56,11 @@ func main() {
 
 	client := resty.New().SetTimeout(10 * time.Second)
 
-	go collectMetrics(&counter, &memStats)
+	go collectMetrics(&counter, &memStats, time.Duration(*pollInterval)*time.Second)
 
 	for {
 		sendMetrics(client, metrics)
-		time.Sleep(10 * time.Second)
+		time.Sleep(time.Duration(*reportInterval) * time.Second)
 	}
 }
 
@@ -71,8 +79,8 @@ func sendMetrics(client *resty.Client, metrics map[string]func() any) {
 	}
 }
 
-func collectMetrics(counter *int, memStats *runtime.MemStats) {
-	for range time.Tick(2 * time.Second) {
+func collectMetrics(counter *int, memStats *runtime.MemStats, pollInterval time.Duration) {
+	for range time.Tick(pollInterval) {
 		runtime.ReadMemStats(memStats)
 		*counter += 1
 	}

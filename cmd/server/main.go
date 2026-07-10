@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log"
 
 	"github.com/gin-gonic/gin"
@@ -11,7 +12,10 @@ import (
 )
 
 func main() {
-	if err := newServerHandler().Run(":8080"); err != nil {
+	address := flag.String("a", "localhost:8080", "HTTP server address")
+	flag.Parse()
+
+	if err := newServerHandler().Run(*address); err != nil {
 		log.Println(err)
 	}
 }
