@@ -2,7 +2,8 @@ package main
 
 import (
 	"log"
-	"net/http"
+
+	"github.com/gin-gonic/gin"
 
 	"github.com/Misterio715/go-course-metrics-service/internal/handler"
 	"github.com/Misterio715/go-course-metrics-service/internal/repository"
@@ -10,19 +11,19 @@ import (
 )
 
 func main() {
-	err := http.ListenAndServe(":8080", handler.LogRequests(log.Default(), newServerHandler()))
-	if err != nil {
-		return
+	if err := newServerHandler().Run(":8080"); err != nil {
+		log.Println(err)
 	}
 }
 
-func newServerHandler() http.Handler {
+func newServerHandler() *gin.Engine {
 	storage := repository.NewMemStorage()
 	metricsService := service.NewMetricsService(storage)
 	metricsHandler := handler.NewMetricsHandler(metricsService)
 
-	mux := http.NewServeMux()
-	metricsHandler.RegisterRoutes(mux)
+	router := gin.New()
+	router.Use(handler.LogRequests(log.Default()))
+	metricsHandler.RegisterRoutes(router)
 
-	return mux
+	return router
 }
