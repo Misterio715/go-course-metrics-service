@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"runtime"
+	"sync"
 	"time"
 
 	"resty.dev/v3"
@@ -16,59 +17,85 @@ func main() {
 	pollInterval := flag.Int("p", 2, "poll interval in seconds")
 	flag.Parse()
 
-	baseUrl = "http://" + *address + "/update/"
-
-	var memStats runtime.MemStats
-	runtime.ReadMemStats(&memStats)
-
-	var counter int
-	metrics := map[string]func() any{
-		"gauge/Alloc":         func() any { return memStats.Alloc },
-		"gauge/BuckHashSys":   func() any { return memStats.BuckHashSys },
-		"gauge/Frees":         func() any { return memStats.Frees },
-		"gauge/GCCPUFraction": func() any { return memStats.GCCPUFraction },
-		"gauge/GCSys":         func() any { return memStats.GCSys },
-		"gauge/HeapAlloc":     func() any { return memStats.HeapAlloc },
-		"gauge/HeapIdle":      func() any { return memStats.HeapIdle },
-		"gauge/HeapInuse":     func() any { return memStats.HeapInuse },
-		"gauge/HeapObjects":   func() any { return memStats.HeapObjects },
-		"gauge/HeapReleased":  func() any { return memStats.HeapReleased },
-		"gauge/HeapSys":       func() any { return memStats.HeapSys },
-		"gauge/LastGC":        func() any { return memStats.LastGC },
-		"gauge/Lookups":       func() any { return memStats.Lookups },
-		"gauge/MCacheInuse":   func() any { return memStats.MCacheInuse },
-		"gauge/MCacheSys":     func() any { return memStats.MCacheSys },
-		"gauge/MSpanInuse":    func() any { return memStats.MSpanInuse },
-		"gauge/MSpanSys":      func() any { return memStats.MSpanSys },
-		"gauge/Mallocs":       func() any { return memStats.Mallocs },
-		"gauge/NextGC":        func() any { return memStats.NextGC },
-		"gauge/NumForcedGC":   func() any { return memStats.NumForcedGC },
-		"gauge/NumGC":         func() any { return memStats.NumGC },
-		"gauge/OtherSys":      func() any { return memStats.OtherSys },
-		"gauge/PauseTotalNs":  func() any { return memStats.PauseTotalNs },
-		"gauge/StackInuse":    func() any { return memStats.StackInuse },
-		"gauge/StackSys":      func() any { return memStats.StackSys },
-		"gauge/Sys":           func() any { return memStats.Sys },
-		"gauge/TotalAlloc":    func() any { return memStats.TotalAlloc },
-		"gauge/RandomValue":   func() any { return rand.Float64() },
-		"counter/PollCount":   func() any { return counter },
-	}
+	baseURL := "http://" + *address + "/update/"
+	collector := newMetricsCollector()
 
 	client := resty.New().SetTimeout(10 * time.Second)
 
-	go collectMetrics(&counter, &memStats, time.Duration(*pollInterval)*time.Second)
+	go collector.collect(time.Duration(*pollInterval) * time.Second)
 
 	for {
-		sendMetrics(client, metrics)
+		sendMetrics(client, baseURL, collector.metrics())
 		time.Sleep(time.Duration(*reportInterval) * time.Second)
 	}
 }
 
-var baseUrl = "http://localhost:8080/update/"
+type metricsCollector struct {
+	mu       sync.RWMutex
+	memStats runtime.MemStats
+	counter  int
+}
 
-func sendMetrics(client *resty.Client, metrics map[string]func() any) {
-	for k, v := range metrics {
-		var url = baseUrl + k + "/" + fmt.Sprint(v())
+func newMetricsCollector() *metricsCollector {
+	collector := &metricsCollector{}
+	runtime.ReadMemStats(&collector.memStats)
+	return collector
+}
+
+func (c *metricsCollector) collect(pollInterval time.Duration) {
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		c.mu.Lock()
+		runtime.ReadMemStats(&c.memStats)
+		c.counter++
+		c.mu.Unlock()
+	}
+}
+
+func (c *metricsCollector) metrics() map[string]any {
+	randomValue := rand.Float64()
+
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return map[string]any{
+		"gauge/Alloc":         c.memStats.Alloc,
+		"gauge/BuckHashSys":   c.memStats.BuckHashSys,
+		"gauge/Frees":         c.memStats.Frees,
+		"gauge/GCCPUFraction": c.memStats.GCCPUFraction,
+		"gauge/GCSys":         c.memStats.GCSys,
+		"gauge/HeapAlloc":     c.memStats.HeapAlloc,
+		"gauge/HeapIdle":      c.memStats.HeapIdle,
+		"gauge/HeapInuse":     c.memStats.HeapInuse,
+		"gauge/HeapObjects":   c.memStats.HeapObjects,
+		"gauge/HeapReleased":  c.memStats.HeapReleased,
+		"gauge/HeapSys":       c.memStats.HeapSys,
+		"gauge/LastGC":        c.memStats.LastGC,
+		"gauge/Lookups":       c.memStats.Lookups,
+		"gauge/MCacheInuse":   c.memStats.MCacheInuse,
+		"gauge/MCacheSys":     c.memStats.MCacheSys,
+		"gauge/MSpanInuse":    c.memStats.MSpanInuse,
+		"gauge/MSpanSys":      c.memStats.MSpanSys,
+		"gauge/Mallocs":       c.memStats.Mallocs,
+		"gauge/NextGC":        c.memStats.NextGC,
+		"gauge/NumForcedGC":   c.memStats.NumForcedGC,
+		"gauge/NumGC":         c.memStats.NumGC,
+		"gauge/OtherSys":      c.memStats.OtherSys,
+		"gauge/PauseTotalNs":  c.memStats.PauseTotalNs,
+		"gauge/StackInuse":    c.memStats.StackInuse,
+		"gauge/StackSys":      c.memStats.StackSys,
+		"gauge/Sys":           c.memStats.Sys,
+		"gauge/TotalAlloc":    c.memStats.TotalAlloc,
+		"gauge/RandomValue":   randomValue,
+		"counter/PollCount":   c.counter,
+	}
+}
+
+func sendMetrics(client *resty.Client, baseURL string, metrics map[string]any) {
+	for name, value := range metrics {
+		url := baseURL + name + "/" + fmt.Sprint(value)
 
 		_, err := client.R().
 			SetHeader("Content-Type", "text/plain").
@@ -76,12 +103,5 @@ func sendMetrics(client *resty.Client, metrics map[string]func() any) {
 		if err != nil {
 			fmt.Println(err)
 		}
-	}
-}
-
-func collectMetrics(counter *int, memStats *runtime.MemStats, pollInterval time.Duration) {
-	for range time.Tick(pollInterval) {
-		runtime.ReadMemStats(memStats)
-		*counter += 1
 	}
 }

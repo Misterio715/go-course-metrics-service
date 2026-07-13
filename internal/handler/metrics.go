@@ -28,37 +28,37 @@ func NewMetricsHandler(service MetricsService) *MetricsHandler {
 }
 
 func (h *MetricsHandler) RegisterRoutes(router *gin.Engine) {
-	router.POST("/update/gauge/:metric/:value", h.gauge)
-	router.POST("/update/counter/:metric/:value", h.counter)
-	router.POST("/update/:type/:metric/:value", h.unknownMetricType)
+	router.POST("/update/:type/:metric/:value", h.update)
 	router.GET("/value/:type/:metric", h.value)
 	router.GET("/", h.metrics)
 }
 
-func (h *MetricsHandler) gauge(c *gin.Context) {
-	value, err := strconv.ParseFloat(c.Param("value"), 64)
-	if err != nil {
+func (h *MetricsHandler) update(c *gin.Context) {
+	name := c.Param("metric")
+	value := c.Param("value")
+
+	switch c.Param("type") {
+	case "gauge":
+		gauge, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			c.AbortWithStatus(http.StatusBadRequest)
+			return
+		}
+
+		h.service.AddGauge(name, gauge)
+		c.Status(http.StatusOK)
+	case "counter":
+		counter, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			c.AbortWithStatus(http.StatusBadRequest)
+			return
+		}
+
+		h.service.AddCounter(name, counter)
+		c.Status(http.StatusOK)
+	default:
 		c.AbortWithStatus(http.StatusBadRequest)
-		return
 	}
-
-	h.service.AddGauge(c.Param("metric"), value)
-	c.Status(http.StatusOK)
-}
-
-func (h *MetricsHandler) counter(c *gin.Context) {
-	value, err := strconv.ParseInt(c.Param("value"), 10, 64)
-	if err != nil {
-		c.AbortWithStatus(http.StatusBadRequest)
-		return
-	}
-
-	h.service.AddCounter(c.Param("metric"), value)
-	c.Status(http.StatusOK)
-}
-
-func (h *MetricsHandler) unknownMetricType(c *gin.Context) {
-	c.AbortWithStatus(http.StatusBadRequest)
 }
 
 func (h *MetricsHandler) value(c *gin.Context) {

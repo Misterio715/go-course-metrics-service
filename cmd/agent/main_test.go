@@ -21,18 +21,16 @@ func TestSendMetricsPostsKnownMetricURLs(t *testing.T) {
 	}))
 	defer server.Close()
 
-	oldBaseURL := baseUrl
-	baseUrl = server.URL + "/update/"
-	defer func() { baseUrl = oldBaseURL }()
+	baseURL := server.URL + "/update/"
 
 	counter := 7
-	metrics := map[string]func() any{
-		"gauge/Alloc":       func() any { return uint64(42) },
-		"gauge/RandomValue": func() any { return 0.25 },
-		"counter/PollCount": func() any { return counter },
+	metrics := map[string]any{
+		"gauge/Alloc":       uint64(42),
+		"gauge/RandomValue": 0.25,
+		"counter/PollCount": counter,
 	}
 
-	sendMetrics(resty.NewWithClient(server.Client()), metrics)
+	sendMetrics(resty.NewWithClient(server.Client()), baseURL, metrics)
 
 	wantPaths := map[string]bool{
 		"/update/gauge/Alloc/42":         false,
