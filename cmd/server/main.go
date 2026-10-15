@@ -1,7 +1,10 @@
 package main
 
 import (
-	"net/http"
+	"flag"
+	"log"
+
+	"github.com/gin-gonic/gin"
 
 	"github.com/Misterio715/go-course-metrics-service/internal/handler"
 	"github.com/Misterio715/go-course-metrics-service/internal/repository"
@@ -9,15 +12,22 @@ import (
 )
 
 func main() {
+	address := flag.String("a", "localhost:8080", "HTTP server address")
+	flag.Parse()
+
+	if err := newServerHandler().Run(*address); err != nil {
+		log.Println(err)
+	}
+}
+
+func newServerHandler() *gin.Engine {
 	storage := repository.NewMemStorage()
 	metricsService := service.NewMetricsService(storage)
 	metricsHandler := handler.NewMetricsHandler(metricsService)
 
-	mux := http.NewServeMux()
-	metricsHandler.RegisterRoutes(mux)
+	router := gin.New()
+	router.Use(handler.LogRequests(log.Default()))
+	metricsHandler.RegisterRoutes(router)
 
-	err := http.ListenAndServe(":8080", mux)
-	if err != nil {
-		return
-	}
+	return router
 }
