@@ -3,8 +3,11 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"math/rand"
+	"os"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 
@@ -16,6 +19,24 @@ func main() {
 	reportInterval := flag.Int("r", 10, "report interval in seconds")
 	pollInterval := flag.Int("p", 2, "poll interval in seconds")
 	flag.Parse()
+
+	if envAddress, ok := os.LookupEnv("ADDRESS"); ok {
+		*address = envAddress
+	}
+	if envReportInterval, ok := os.LookupEnv("REPORT_INTERVAL"); ok {
+		interval, err := strconv.Atoi(envReportInterval)
+		if err != nil {
+			log.Fatalf("invalid REPORT_INTERVAL: %v", err)
+		}
+		*reportInterval = interval
+	}
+	if envPollInterval, ok := os.LookupEnv("POLL_INTERVAL"); ok {
+		interval, err := strconv.Atoi(envPollInterval)
+		if err != nil {
+			log.Fatalf("invalid POLL_INTERVAL: %v", err)
+		}
+		*pollInterval = interval
+	}
 
 	baseURL := "http://" + *address + "/update/"
 	collector := newMetricsCollector()
