@@ -2,16 +2,17 @@ package handler
 
 import (
 	"log"
-	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
-func LogRequests(logger *log.Logger, next http.Handler) http.Handler {
+func LogRequests(logger *log.Logger) gin.HandlerFunc {
 	if logger == nil {
 		logger = log.Default()
 	}
 
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logger.Printf("incoming request method=%s path=%s", r.Method, r.URL.Path)
-		next.ServeHTTP(w, r)
-	})
+	return func(c *gin.Context) {
+		logger.Printf("incoming request method=%s path=%s", c.Request.Method, c.Request.URL.Path)
+		c.Next()
+	}
 }

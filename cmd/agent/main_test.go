@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"resty.dev/v3"
 )
 
 func TestSendMetricsPostsKnownMetricURLs(t *testing.T) {
@@ -30,7 +32,7 @@ func TestSendMetricsPostsKnownMetricURLs(t *testing.T) {
 		"counter/PollCount": func() any { return counter },
 	}
 
-	sendMetrics(server.Client(), metrics)
+	sendMetrics(resty.NewWithClient(server.Client()), metrics)
 
 	wantPaths := map[string]bool{
 		"/update/gauge/Alloc/42":         false,

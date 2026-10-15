@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/gin-gonic/gin"
 )
 
 func TestLogRequestsLogsMethodAndPath(t *testing.T) {
@@ -14,15 +16,17 @@ func TestLogRequestsLogsMethodAndPath(t *testing.T) {
 	logger := log.New(&output, "", 0)
 	called := false
 
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	router := gin.New()
+	router.Use(LogRequests(logger))
+	router.POST("/update/gauge/:metric/:value", func(c *gin.Context) {
 		called = true
-		w.WriteHeader(http.StatusAccepted)
+		c.Status(http.StatusAccepted)
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/update/gauge/temperature/12.5?from=test", nil)
 	rec := httptest.NewRecorder()
 
-	LogRequests(logger, next).ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
 	if !called {
 		t.Fatal("expected next handler to be called")

@@ -3,9 +3,10 @@ package main
 import (
 	"fmt"
 	"math/rand"
-	"net/http"
 	"runtime"
 	"time"
+
+	"resty.dev/v3"
 )
 
 func main() {
@@ -45,7 +46,7 @@ func main() {
 		"counter/PollCount":   func() any { return counter },
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := resty.New().SetTimeout(10 * time.Second)
 
 	go collectMetrics(&counter, &memStats)
 
@@ -57,17 +58,13 @@ func main() {
 
 var baseUrl = "http://localhost:8080/update/"
 
-func sendMetrics(client *http.Client, metrics map[string]func() any) {
+func sendMetrics(client *resty.Client, metrics map[string]func() any) {
 	for k, v := range metrics {
 		var url = baseUrl + k + "/" + fmt.Sprint(v())
 
-		request, err := http.NewRequest(http.MethodPost, url, nil)
-		if err != nil {
-			fmt.Println(err)
-		}
-		request.Header.Set("Content-Type", "text/plain")
-
-		_, err = client.Do(request)
+		_, err := client.R().
+			SetHeader("Content-Type", "text/plain").
+			Post(url)
 		if err != nil {
 			fmt.Println(err)
 		}
