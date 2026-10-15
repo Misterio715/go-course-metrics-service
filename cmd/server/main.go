@@ -2,10 +2,11 @@ package main
 
 import (
 	"flag"
-	"log"
+	"net/http"
 	"os"
 
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog/log"
 
 	"github.com/Misterio715/go-course-metrics-service/internal/handler"
 	"github.com/Misterio715/go-course-metrics-service/internal/repository"
@@ -21,7 +22,7 @@ func main() {
 	}
 
 	if err := newServerHandler().Run(*address); err != nil {
-		log.Println(err)
+		log.Info().Err(err).Msg("HTTP server stopped")
 	}
 }
 
@@ -31,7 +32,10 @@ func newServerHandler() *gin.Engine {
 	metricsHandler := handler.NewMetricsHandler(metricsService)
 
 	router := gin.New()
-	router.Use(handler.LogRequests(log.Default()))
+	router.Use(handler.LogRequests(&log.Logger))
+	router.NoRoute(func(ctx *gin.Context) {
+		ctx.Data(http.StatusNotFound, gin.MIMEPlain, []byte("404 page not found"))
+	})
 	metricsHandler.RegisterRoutes(router)
 
 	return router
