@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"log"
+	"os"
 
 	"github.com/gin-gonic/gin"
 
@@ -14,6 +15,10 @@ import (
 func main() {
 	address := flag.String("a", "localhost:8080", "HTTP server address")
 	flag.Parse()
+
+	if envAddress, ok := os.LookupEnv("ADDRESS"); ok {
+		*address = envAddress
+	}
 
 	if err := newServerHandler().Run(*address); err != nil {
 		log.Println(err)
