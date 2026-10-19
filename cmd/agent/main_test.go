@@ -1,6 +1,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,15 +15,25 @@ func TestSendMetricsPostsKnownMetricsAsJSON(t *testing.T) {
 	var gotPaths []string
 	var gotMethods []string
 	var gotContentTypes []string
+	var gotContentEncodings []string
 	var gotMetrics []models.Metrics
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPaths = append(gotPaths, r.URL.Path)
 		gotMethods = append(gotMethods, r.Method)
 		gotContentTypes = append(gotContentTypes, r.Header.Get("Content-Type"))
+		gotContentEncodings = append(gotContentEncodings, r.Header.Get("Content-Encoding"))
+
+		reader, err := gzip.NewReader(r.Body)
+		if err != nil {
+			t.Errorf("expected gzip request body, got error: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		defer reader.Close()
 
 		var metric models.Metrics
-		if err := json.NewDecoder(r.Body).Decode(&metric); err != nil {
+		if err := json.NewDecoder(reader).Decode(&metric); err != nil {
 			t.Errorf("expected JSON metric body, got error: %v", err)
 		}
 		gotMetrics = append(gotMetrics, metric)
@@ -66,6 +77,9 @@ func TestSendMetricsPostsKnownMetricsAsJSON(t *testing.T) {
 		}
 		if gotContentTypes[i] != "application/json" {
 			t.Fatalf("expected request %q content type application/json, got %q", path, gotContentTypes[i])
+		}
+		if gotContentEncodings[i] != "gzip" {
+			t.Fatalf("expected request %q content encoding gzip, got %q", path, gotContentEncodings[i])
 		}
 	}
 
