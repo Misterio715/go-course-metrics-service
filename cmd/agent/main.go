@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -8,9 +9,11 @@ import (
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	models "github.com/Misterio715/go-course-metrics-service/internal/model"
 	"resty.dev/v3"
 )
 
@@ -38,7 +41,7 @@ func main() {
 		*pollInterval = interval
 	}
 
-	baseURL := "http://" + *address + "/update/"
+	baseURL := "http://" + *address + "/update"
 	collector := newMetricsCollector()
 
 	client := resty.New().SetTimeout(10 * time.Second)
@@ -116,11 +119,41 @@ func (c *metricsCollector) metrics() map[string]any {
 
 func sendMetrics(client *resty.Client, baseURL string, metrics map[string]any) {
 	for name, value := range metrics {
-		url := baseURL + name + "/" + fmt.Sprint(value)
+		metricType, metricName, ok := strings.Cut(name, "/")
+		if !ok {
+			continue
+		}
 
-		_, err := client.R().
-			SetHeader("Content-Type", "text/plain").
-			Post(url)
+		metric := models.Metrics{ID: metricName, MType: metricType}
+		switch metricType {
+		case models.Gauge:
+			gauge, err := strconv.ParseFloat(fmt.Sprint(value), 64)
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+			metric.Value = &gauge
+		case models.Counter:
+			counter, err := strconv.ParseInt(fmt.Sprint(value), 10, 64)
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+			metric.Delta = &counter
+		default:
+			continue
+		}
+
+		body, err := json.Marshal(metric)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		_, err = client.R().
+			SetHeader("Content-Type", "application/json").
+			SetBody(body).
+			Post(baseURL)
 		if err != nil {
 			fmt.Println(err)
 		}

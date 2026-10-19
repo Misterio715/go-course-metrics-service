@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
 	"html"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	models "github.com/Misterio715/go-course-metrics-service/internal/model"
 	"github.com/gin-gonic/gin"
 )
 
@@ -28,9 +30,103 @@ func NewMetricsHandler(service MetricsService) *MetricsHandler {
 }
 
 func (h *MetricsHandler) RegisterRoutes(router *gin.Engine) {
+	router.POST("/update", h.updateJSON)
+	router.POST("/value", h.valueJSON)
 	router.POST("/update/:type/:metric/:value", h.update)
 	router.GET("/value/:type/:metric", h.value)
 	router.GET("/", h.metrics)
+}
+
+func (h *MetricsHandler) updateJSON(c *gin.Context) {
+	c.Header("Content-Type", "application/json")
+
+	var metric models.Metrics
+	if err := json.NewDecoder(c.Request.Body).Decode(&metric); err != nil {
+		c.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+
+	if metric.ID == "" {
+		c.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+
+	switch metric.MType {
+	case models.Gauge:
+		if metric.Value == nil {
+			c.AbortWithStatus(http.StatusBadRequest)
+			return
+		}
+		metric.Delta = nil
+		h.service.AddGauge(metric.ID, *metric.Value)
+	case models.Counter:
+		if metric.Delta == nil {
+			c.AbortWithStatus(http.StatusBadRequest)
+			return
+		}
+		metric.Value = nil
+		h.service.AddCounter(metric.ID, *metric.Delta)
+		value, ok := h.service.GetCounter(metric.ID)
+		if !ok {
+			c.AbortWithStatus(http.StatusInternalServerError)
+			return
+		}
+		metric.Delta = &value
+	default:
+		c.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+
+	body, err := json.Marshal(metric)
+	if err != nil {
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+	c.Data(http.StatusOK, "application/json", body)
+}
+
+func (h *MetricsHandler) valueJSON(c *gin.Context) {
+	c.Header("Content-Type", "application/json")
+
+	var metric models.Metrics
+	if err := json.NewDecoder(c.Request.Body).Decode(&metric); err != nil {
+		c.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+
+	if metric.ID == "" {
+		c.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+
+	switch metric.MType {
+	case models.Gauge:
+		value, ok := h.service.GetGauge(metric.ID)
+		if !ok {
+			c.AbortWithStatus(http.StatusNotFound)
+			return
+		}
+		metric.Delta = nil
+		metric.Value = &value
+	case models.Counter:
+		value, ok := h.service.GetCounter(metric.ID)
+		if !ok {
+			c.AbortWithStatus(http.StatusNotFound)
+			return
+		}
+		metric.Delta = &value
+		metric.Value = nil
+	default:
+		c.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+
+	body, err := json.Marshal(metric)
+	if err != nil {
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+	c.Data(http.StatusOK, "application/json", body)
 }
 
 func (h *MetricsHandler) update(c *gin.Context) {
