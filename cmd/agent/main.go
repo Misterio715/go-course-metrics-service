@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -149,13 +151,31 @@ func sendMetrics(client *resty.Client, baseURL string, metrics map[string]any) {
 			fmt.Println(err)
 			continue
 		}
+		body, err = compressBody(body)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
 
 		_, err = client.R().
 			SetHeader("Content-Type", "application/json").
+			SetHeader("Content-Encoding", "gzip").
 			SetBody(body).
 			Post(baseURL)
 		if err != nil {
 			fmt.Println(err)
 		}
 	}
+}
+
+func compressBody(body []byte) ([]byte, error) {
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	if _, err := writer.Write(body); err != nil {
+		return nil, err
+	}
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+	return compressed.Bytes(), nil
 }

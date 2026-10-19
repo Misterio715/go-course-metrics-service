@@ -33,6 +33,7 @@ func newServerHandler() *gin.Engine {
 
 	router := gin.New()
 	router.Use(handler.LogRequests(&log.Logger))
+	router.Use(handler.Gzip())
 	router.NoRoute(func(ctx *gin.Context) {
 		ctx.Data(http.StatusNotFound, gin.MIMEPlain, []byte("404 page not found"))
 	})
