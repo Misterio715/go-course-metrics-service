@@ -11,10 +11,11 @@ import (
 	"testing"
 
 	models "github.com/Misterio715/go-course-metrics-service/internal/model"
+	"github.com/Misterio715/go-course-metrics-service/internal/repository"
 )
 
 func TestNewServerHandlerAcceptsMetricUpdates(t *testing.T) {
-	server := newServerHandler()
+	server := newServerHandler(repository.NewMemStorage())
 
 	var compressedUpdate bytes.Buffer
 	compressor := gzip.NewWriter(&compressedUpdate)

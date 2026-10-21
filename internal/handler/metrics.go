@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"math"
 	"net/http"
 	"sort"
 	"strconv"
@@ -136,7 +137,7 @@ func (h *MetricsHandler) update(c *gin.Context) {
 	switch c.Param("type") {
 	case "gauge":
 		gauge, err := strconv.ParseFloat(value, 64)
-		if err != nil {
+		if err != nil || math.IsNaN(gauge) || math.IsInf(gauge, 0) {
 			c.AbortWithStatus(http.StatusBadRequest)
 			return
 		}
