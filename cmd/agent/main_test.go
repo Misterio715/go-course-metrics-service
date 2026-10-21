@@ -1,27 +1,49 @@
 package main
 
 import (
+	"compress/gzip"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	models "github.com/Misterio715/go-course-metrics-service/internal/model"
 	"resty.dev/v3"
 )
 
-func TestSendMetricsPostsKnownMetricURLs(t *testing.T) {
+func TestSendMetricsPostsKnownMetricsAsJSON(t *testing.T) {
 	var gotPaths []string
 	var gotMethods []string
 	var gotContentTypes []string
+	var gotContentEncodings []string
+	var gotMetrics []models.Metrics
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPaths = append(gotPaths, r.URL.Path)
 		gotMethods = append(gotMethods, r.Method)
 		gotContentTypes = append(gotContentTypes, r.Header.Get("Content-Type"))
+		gotContentEncodings = append(gotContentEncodings, r.Header.Get("Content-Encoding"))
+
+		reader, err := gzip.NewReader(r.Body)
+		if err != nil {
+			t.Errorf("expected gzip request body, got error: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		defer reader.Close()
+
+		var metric models.Metrics
+		if err := json.NewDecoder(reader).Decode(&metric); err != nil {
+			t.Errorf("expected JSON metric body, got error: %v", err)
+		}
+		gotMetrics = append(gotMetrics, metric)
+
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
-	baseURL := server.URL + "/update/"
+	baseURL := server.URL + "/update"
 
 	counter := 7
 	metrics := map[string]any{
@@ -32,33 +54,65 @@ func TestSendMetricsPostsKnownMetricURLs(t *testing.T) {
 
 	sendMetrics(resty.NewWithClient(server.Client()), baseURL, metrics)
 
-	wantPaths := map[string]bool{
-		"/update/gauge/Alloc/42":         false,
-		"/update/gauge/RandomValue/0.25": false,
-		"/update/counter/PollCount/7":    false,
+	wantMetrics := map[string]struct {
+		metricType string
+		value      float64
+	}{
+		"Alloc":       {metricType: models.Gauge, value: 42},
+		"RandomValue": {metricType: models.Gauge, value: 0.25},
+		"PollCount":   {metricType: models.Counter, value: 7},
 	}
 
-	if len(gotPaths) != len(wantPaths) {
-		t.Fatalf("expected %d requests, got %d: %v", len(wantPaths), len(gotPaths), gotPaths)
+	if len(gotMetrics) != len(wantMetrics) {
+		t.Fatalf("expected %d requests, got %d", len(wantMetrics), len(gotMetrics))
 	}
 
 	for i, path := range gotPaths {
-		if _, ok := wantPaths[path]; !ok {
-			t.Fatalf("unexpected request path %q; all paths: %v", path, gotPaths)
+		if path != "/update" {
+			t.Fatalf("expected request path %q, got %q", "/update", path)
 		}
-		wantPaths[path] = true
 
 		if gotMethods[i] != http.MethodPost {
 			t.Fatalf("expected request %q to use POST, got %s", path, gotMethods[i])
 		}
-		if gotContentTypes[i] != "text/plain" {
-			t.Fatalf("expected request %q content type text/plain, got %q", path, gotContentTypes[i])
+		if gotContentTypes[i] != "application/json" {
+			t.Fatalf("expected request %q content type application/json, got %q", path, gotContentTypes[i])
+		}
+		if gotContentEncodings[i] != "gzip" {
+			t.Fatalf("expected request %q content encoding gzip, got %q", path, gotContentEncodings[i])
 		}
 	}
 
-	for path, seen := range wantPaths {
-		if !seen {
-			t.Fatalf("expected request path %q, got %v", path, gotPaths)
+	for _, metric := range gotMetrics {
+		want, ok := wantMetrics[metric.ID]
+		if !ok {
+			t.Fatalf("unexpected metric ID %q", metric.ID)
 		}
+		if metric.MType != want.metricType {
+			t.Fatalf("expected metric %q type %q, got %q", metric.ID, want.metricType, metric.MType)
+		}
+
+		switch metric.MType {
+		case models.Gauge:
+			if metric.Value == nil || *metric.Value != want.value {
+				t.Fatalf("expected gauge %q value %v, got %v", metric.ID, want.value, metric.Value)
+			}
+			if metric.Delta != nil {
+				t.Fatalf("expected gauge %q delta to be omitted, got %d", metric.ID, *metric.Delta)
+			}
+		case models.Counter:
+			if metric.Delta == nil || *metric.Delta != int64(want.value) {
+				t.Fatalf("expected counter %q delta %v, got %v", metric.ID, want.value, metric.Delta)
+			}
+			if metric.Value != nil {
+				t.Fatalf("expected counter %q value to be omitted, got %v", metric.ID, *metric.Value)
+			}
+		}
+
+		delete(wantMetrics, metric.ID)
+	}
+
+	if len(wantMetrics) != 0 {
+		t.Fatalf("expected all metrics to be sent, missing %v", wantMetrics)
 	}
 }

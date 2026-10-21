@@ -1,13 +1,21 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"log"
 	"math/rand"
+	"os"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	models "github.com/Misterio715/go-course-metrics-service/internal/model"
 	"resty.dev/v3"
 )
 
@@ -17,7 +25,25 @@ func main() {
 	pollInterval := flag.Int("p", 2, "poll interval in seconds")
 	flag.Parse()
 
-	baseURL := "http://" + *address + "/update/"
+	if envAddress, ok := os.LookupEnv("ADDRESS"); ok {
+		*address = envAddress
+	}
+	if envReportInterval, ok := os.LookupEnv("REPORT_INTERVAL"); ok {
+		interval, err := strconv.Atoi(envReportInterval)
+		if err != nil {
+			log.Fatalf("invalid REPORT_INTERVAL: %v", err)
+		}
+		*reportInterval = interval
+	}
+	if envPollInterval, ok := os.LookupEnv("POLL_INTERVAL"); ok {
+		interval, err := strconv.Atoi(envPollInterval)
+		if err != nil {
+			log.Fatalf("invalid POLL_INTERVAL: %v", err)
+		}
+		*pollInterval = interval
+	}
+
+	baseURL := "http://" + *address + "/update"
 	collector := newMetricsCollector()
 
 	client := resty.New().SetTimeout(10 * time.Second)
@@ -95,13 +121,61 @@ func (c *metricsCollector) metrics() map[string]any {
 
 func sendMetrics(client *resty.Client, baseURL string, metrics map[string]any) {
 	for name, value := range metrics {
-		url := baseURL + name + "/" + fmt.Sprint(value)
+		metricType, metricName, ok := strings.Cut(name, "/")
+		if !ok {
+			continue
+		}
 
-		_, err := client.R().
-			SetHeader("Content-Type", "text/plain").
-			Post(url)
+		metric := models.Metrics{ID: metricName, MType: metricType}
+		switch metricType {
+		case models.Gauge:
+			gauge, err := strconv.ParseFloat(fmt.Sprint(value), 64)
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+			metric.Value = &gauge
+		case models.Counter:
+			counter, err := strconv.ParseInt(fmt.Sprint(value), 10, 64)
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+			metric.Delta = &counter
+		default:
+			continue
+		}
+
+		body, err := json.Marshal(metric)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+		body, err = compressBody(body)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		_, err = client.R().
+			SetHeader("Content-Type", "application/json").
+			SetHeader("Content-Encoding", "gzip").
+			SetBody(body).
+			Post(baseURL)
 		if err != nil {
 			fmt.Println(err)
 		}
 	}
+}
+
+func compressBody(body []byte) ([]byte, error) {
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	if _, err := writer.Write(body); err != nil {
+		return nil, err
+	}
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+	return compressed.Bytes(), nil
 }
